@@ -55,7 +55,6 @@ def read_sock(sock) -> str:
     chunks = []
     while True:
         chunk = sock.recv(4096)
-        print(chunk)
         if not chunk:
             # Server closed the connection or error
             raise ConnectionError("Server closed connection unexpectedly.")
@@ -121,14 +120,7 @@ def receive_protocols(screen_name: str, udp_sock:socket.socket) -> None:
                 continue
             else:
                 protocol: str = data[0:4]
-            # Protocol check
-            # if protocol == "ACPT":
-            #     in_room = data[5:].split(":") # Format for processing
-            #     for person in in_room:
-            #         new_screen_name, ip, port = person.split()
-            #         logger.debug("person: %s", new_screen_name)
-            #         logger.info("%s in room ,:~)", new_screen_name)
-            #         populate_member_list((new_screen_name, ip, int(port)))
+
             if protocol == "JOIN":
                 # person: ['<screen_name>', '<IP>', '<Port>']
                 new_screen_name, ip, port = data[5:].split() # Format for processing
@@ -162,8 +154,6 @@ def send_protocols(screen_name:str, udp_sock:socket.socket, udp_port:int, server
     """Thread for writing to UDP sockets and managing OUTGOING protocols"""
     reading_input = True
     while reading_input:
-        #print("(EXIT to quit) || Message >> ", end="", flush=True)
-        # ready, _, _ = select.select([sys.stdin], [], [], 1.0)  # Check for input every 1 sec
         user_message = sys.stdin.readline().strip()
         if not user_message:
             logger.info("No message typed, try again..?")
