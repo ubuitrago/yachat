@@ -34,6 +34,19 @@ def contains_whitespace(s):
     """Quick check of spaces in screen names"""
     return True in [c in s for c in string.whitespace]
 
+def get_local_ip() -> str:
+    """Return the primary local IP address (IPv4) of this machine."""
+    try:
+        # Create a temporary UDP socket
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            # This "connect" doesn't actually send packets,
+            # but allows the OS to determine the default interface.
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except Exception:
+        # Fallback if we cannot connect to the internet
+        return "127.0.0.1"
+    
 def read_sock(sock) -> str:
     """
     Read from the socket until you see a newline.
@@ -56,7 +69,8 @@ def read_sock(sock) -> str:
 def tcp_server_connect(server_ip: str, server_port: int, screen_name:str) \
         -> tuple[str, socket.socket, socket.socket]:
     """Establishes initial TCP connection to MemD server"""
-    client_ip = socket.gethostbyname(socket.gethostname())
+    #client_ip = socket.gethostbyname(socket.gethostname())
+    client_ip = get_local_ip()
     # Create an INET, STREAMing socket
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
