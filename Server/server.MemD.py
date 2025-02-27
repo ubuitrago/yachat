@@ -3,7 +3,6 @@ import argparse
 import sys
 import textwrap
 import logging
-from _thread import *
 import threading
 from dataclasses import dataclass
 
@@ -13,6 +12,17 @@ RETURN_CODES = {
     1: "Failed TCP connection with Server.",
     2: "Server not started?",
 }
+# Member Class for creating member objects
+@dataclass
+class Member:
+    """Encapsulated Identity Data for each member of the Chat Room"""
+    screen_name: str
+    ip: str
+    port: int
+
+# Global list shared by all threads
+members_list: list[Member] = []
+
 def format_return_codes(codes):
     header = "|--------------------------------------------------|"
     # Header line for table
@@ -27,8 +37,61 @@ def format_return_codes(codes):
     table_lines.append(header)
     return "\n".join(table_lines)
 
-def servant_thread(connection_socket):
-    pass
+def populate_member_list(datagram: tuple[str,str,int]):
+    """Manages reference to the global members_list
+        Insert members into 2D dataclass table
+        [ Member(screen_name, IP, PORT), Member() ]
+    """
+    members_list.append(Member(screen_name=datagram[0], ip=datagram[1], port=datagram[2]))
+    logger.debug("member_list -> %s\n",members_list)
+
+def send_join_protocol(new_member: Member) -> bool:
+    """Notification sent to ALL Chatter clients over their 
+    UDP ports to let them know that a new member has entered the chatroom. [UDP]"""
+    # Establish UDP Socket
+    udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    join = f"JOIN {new_member.screen_name} {new_member.ip} {new_member.port}\n"
+    for member in members_list:
+        logger.debug("Broadcasting JOIN to: %s", member)
+        try:
+            udp_sock.sendto(join.encode(),(member.ip,member.port))
+        except Exception as e:
+            logger.debug(e)
+            return False
+    return True
+
+def servant(connection_socket:socket.socket, return_address:int):
+    # Expect to recieve HELO protocol message
+    msg = connection_socket.recv(4096)
+
+    if msg == b"":
+        logger.debug("Client closed connection")
+        return
+    else:
+        msg_list = msg.decode().split()
+        # Parse HELO protocol
+        if len(msg_list) == 4 and "HELO" == msg_list[0]:
+            new_screen_name = msg_list[1]
+            if not any(member.screen_name == new_screen_name for member in members_list):
+                # Populate Members List
+                populate_member_list((new_screen_name,return_address,msg_list[3]))
+                # Send ACPT
+                acpt = "ACPT "
+                for index, member in enumerate(members_list):
+                    if index != len(members_list) - 1:
+                        acpt += f"{member.screen_name} {member.ip} {member.port}:"
+                    else:
+                        acpt += f"{member.screen_name} {member.ip} {member.port}\n"
+                connection_socket.send(acpt.encode())
+                # Send JOIN
+                send_join_protocol(members_list[members_list.index(Member.screen_name == new_screen_name)])
+            else:
+                # Send RJCT
+                rjct = f"RJCT {screen_name}\n"
+                connection_socket.send(rjct.encode())
+                connection_socket.close()
+                return
+        # Block 
 
 def start_server(accept_port:int = 7676):
     welcome_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -39,11 +102,13 @@ def start_server(accept_port:int = 7676):
         sys.exit()
     logger.debug("Binded to Welcome Port")
     # Listen for incoming connections
+    logger.debug("Welcome socket listening...")
     while True:
         welcome_sock.listen(9)
-        logger.debug("Welcome socket listening...")
         c, addr = welcome_sock.accept()
-        start_new_thread(servant_thread, (c,))
+        # Spawn a new thread to handle the client
+        client_handler = threading.Thread(target=servant, args=(c, addr))
+        client_handler.start()
 
 if __name__ == "__main__":
     # Color & Terminal formatting
