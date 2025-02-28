@@ -24,6 +24,7 @@ class Member:
 members_list: list[Member] = []
 
 def format_return_codes(codes):
+    """Formatting method for help menu"""
     header = "|--------------------------------------------------|"
     # Header line for table
     table_lines = [
@@ -37,27 +38,42 @@ def format_return_codes(codes):
     table_lines.append(header)
     return "\n".join(table_lines)
 
-def populate_member_list(datagram: tuple[str,str,int]):
+def populate_member_list(datagram: tuple[str,str,int]) -> Member:
     """Manages reference to the global members_list
         Insert members into 2D dataclass table
         [ Member(screen_name, IP, PORT), Member() ]
     """
-    members_list.append(Member(screen_name=datagram[0], ip=datagram[1], port=datagram[2]))
+    new_member = Member(screen_name=datagram[0], ip=datagram[1], port=datagram[2])
+    members_list.append(new_member)
     logger.debug("member_list -> %s\n",members_list)
+    return new_member
 
-def send_join_protocol(new_member: Member) -> bool:
+def send_broadcasting_protocols(self_member: Member, protocol: str) -> bool:
     """Notification sent to ALL Chatter clients over their 
-    UDP ports to let them know that a new member has entered the chatroom. [UDP]"""
+    UDP ports to let them know that a new member has entered the chatroom,
+    OR to let them know that a member has left.[UDP]
+    
+    Parameters:
+        self_member (Member): Member data object triggering the JOIN or EXIT
+        protocol (str): JOIN or EXIT
+
+    Return:
+        bool
+    """
+    if protocol not in ["JOIN","EXIT"]:
+        logger.error("Protocol %s not recognized", protocol)
+        return False
     # Establish UDP Socket
     udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    join = f"JOIN {new_member.screen_name} {new_member.ip} {new_member.port}\n"
+    proto = f"{protocol} {self_member.screen_name} {self_member.ip} {self_member.port}\n"
     for member in members_list:
-        logger.debug("Broadcasting JOIN to: %s", member)
+        logger.debug("Broadcasting %s to: %s", protocol, member)
         try:
-            udp_sock.sendto(join.encode(),(member.ip,member.port))
+            udp_sock.sendto(proto.encode(),(member.ip,member.port))
         except Exception as e:
-            logger.debug(e)
-            return False
+            logger.error(e)
+        
+    udp_sock.close()
     return True
 
 def servant(connection_socket:socket.socket, return_address:int):
@@ -74,7 +90,7 @@ def servant(connection_socket:socket.socket, return_address:int):
             new_screen_name = msg_list[1]
             if not any(member.screen_name == new_screen_name for member in members_list):
                 # Populate Members List
-                populate_member_list((new_screen_name,return_address,msg_list[3]))
+                new_member = populate_member_list((new_screen_name,return_address,msg_list[3]))
                 # Send ACPT
                 acpt = "ACPT "
                 for index, member in enumerate(members_list):
@@ -84,14 +100,31 @@ def servant(connection_socket:socket.socket, return_address:int):
                         acpt += f"{member.screen_name} {member.ip} {member.port}\n"
                 connection_socket.send(acpt.encode())
                 # Send JOIN
-                send_join_protocol(members_list[members_list.index(Member.screen_name == new_screen_name)])
+                if not send_broadcasting_protocols(new_member,"JOIN"):
+                    logger.debug("Unable to send JOIN to all members")
             else:
                 # Send RJCT
-                rjct = f"RJCT {screen_name}\n"
+                rjct = f"RJCT {new_screen_name}\n"
                 connection_socket.send(rjct.encode())
                 connection_socket.close()
                 return
-        # Block 
+    # Block and waiting on EXIT protocol
+    while True:
+        exit_msg = connection_socket.recv(32)
+        if exit_msg.decode().strip() != "EXIT":
+            continue
+        else:
+            # Remove member from Global List
+            try:
+                old_member = members_list.pop(members_list.index(new_member))
+            except IndexError as e:
+                logger.debug("Could not remove member. %s", e)
+            # Send EXIT to ALL members
+            if not send_broadcasting_protocols(old_member,"EXIT"):
+                logger.debug("Unable to send EXIT to all members")
+            else:
+                break
+    return
 
 def start_server(accept_port:int = 7676):
     welcome_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
