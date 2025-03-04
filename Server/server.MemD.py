@@ -65,7 +65,14 @@ def send_broadcasting_protocols(self_member: Member, protocol: str) -> bool:
         return False
     # Establish UDP Socket
     udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    proto = f"{protocol} {self_member.screen_name} {self_member.ip} {self_member.port}\n"
+    if protocol == "EXIT":
+        proto = f"{protocol} {self_member.screen_name}\n"
+        # Broadcast to self_member first since they're waiting on server approval
+        udp_sock.sendto(proto.encode(), (self_member.ip,self_member.port))
+        logger.debug("EXIT ACKNOWLEDGED")
+    else:
+        proto = f"{protocol} {self_member.screen_name} {self_member.ip} {self_member.port}\n"
+    # Broadcast to all members
     for member in members_list:
         logger.debug("Broadcasting %s to: %s", protocol, member)
         try:
@@ -76,7 +83,7 @@ def send_broadcasting_protocols(self_member: Member, protocol: str) -> bool:
     udp_sock.close()
     return True
 
-def servant(connection_socket:socket.socket, return_address:int):
+def servant(connection_socket:socket.socket, return_address:str):
     # Expect to recieve HELO protocol message
     msg = connection_socket.recv(4096)
 
@@ -90,7 +97,7 @@ def servant(connection_socket:socket.socket, return_address:int):
             new_screen_name = msg_list[1]
             if not any(member.screen_name == new_screen_name for member in members_list):
                 # Populate Members List
-                new_member = populate_member_list((new_screen_name,return_address,msg_list[3]))
+                new_member = populate_member_list((new_screen_name,return_address,int(msg_list[3])))
                 # Send ACPT
                 acpt = "ACPT "
                 for index, member in enumerate(members_list):
@@ -99,6 +106,7 @@ def servant(connection_socket:socket.socket, return_address:int):
                     else:
                         acpt += f"{member.screen_name} {member.ip} {member.port}\n"
                 connection_socket.send(acpt.encode())
+                logger.debug("Sent ACPT:%s", acpt)
                 # Send JOIN
                 if not send_broadcasting_protocols(new_member,"JOIN"):
                     logger.debug("Unable to send JOIN to all members")
@@ -131,7 +139,7 @@ def start_server(accept_port:int = 7676):
     try:
         welcome_sock.bind(("",accept_port))
     except socket.error as message:
-        print(f"Bind failed. Error Code: {str(message[0])} Message {message[1]}")
+        print(f"Bind failed. Error {message}")
         sys.exit()
     logger.debug("Binded to Welcome Port")
     # Listen for incoming connections
@@ -139,8 +147,10 @@ def start_server(accept_port:int = 7676):
     while True:
         welcome_sock.listen(9)
         c, addr = welcome_sock.accept()
+        client_ip, client_tcp_port = addr
+        print(client_ip)
         # Spawn a new thread to handle the client
-        client_handler = threading.Thread(target=servant, args=(c, addr))
+        client_handler = threading.Thread(target=servant, args=(c, client_ip))
         client_handler.start()
 
 if __name__ == "__main__":
