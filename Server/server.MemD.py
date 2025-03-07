@@ -48,6 +48,20 @@ def populate_member_list(datagram: tuple[str,str,int]) -> Member:
     logger.debug("member_list -> %s\n",members_list)
     return new_member
 
+def read_line(conn: socket.socket) -> str:
+    """Reads from conencted socket until newline character encountered"""
+    buffer = b""
+    while True:
+        chunk = conn.recv(4096)
+        if not chunk:
+            # Client closed connection or error
+            raise ConnectionError("Socket closed before newline")
+        buffer += chunk
+        if b"\n" in chunk:
+            break
+    # Return entire line as string
+    return buffer.decode()
+
 def send_broadcasting_protocols(self_member: Member, protocol: str) -> bool:
     """Notification sent to ALL Chatter clients over their 
     UDP ports to let them know that a new member has entered the chatroom,
@@ -85,15 +99,17 @@ def send_broadcasting_protocols(self_member: Member, protocol: str) -> bool:
 
 def servant(connection_socket:socket.socket, return_address:str):
     # Expect to recieve HELO protocol message
-    msg = connection_socket.recv(4096)
+    msg = read_line(connection_socket)
+    logger.debug("Server Recieved: %s",msg)
 
     if msg == b"":
         logger.debug("Client closed connection")
         return
     else:
-        msg_list = msg.decode().split()
+        msg_list = msg.split()
         # Parse HELO protocol
         if len(msg_list) == 4 and "HELO" == msg_list[0]:
+            logger.debug("RECV:%s", msg_list)
             new_screen_name = msg_list[1]
             if not any(member.screen_name == new_screen_name for member in members_list):
                 # Populate Members List
@@ -106,7 +122,7 @@ def servant(connection_socket:socket.socket, return_address:str):
                     else:
                         acpt += f"{member.screen_name} {member.ip} {member.port}\n"
                 connection_socket.send(acpt.encode())
-                logger.debug("Sent ACPT:%s", acpt)
+                logger.debug("SEND:%s", acpt)
                 # Send JOIN
                 if not send_broadcasting_protocols(new_member,"JOIN"):
                     logger.debug("Unable to send JOIN to all members")
@@ -131,6 +147,7 @@ def servant(connection_socket:socket.socket, return_address:str):
             if not send_broadcasting_protocols(old_member,"EXIT"):
                 logger.debug("Unable to send EXIT to all members")
             else:
+                connection_socket.close()
                 break
     return
 
@@ -148,7 +165,7 @@ def start_server(accept_port:int = 7676):
         welcome_sock.listen(9)
         c, addr = welcome_sock.accept()
         client_ip, client_tcp_port = addr
-        print(client_ip)
+        logger.debug("Client %s", client_ip)
         # Spawn a new thread to handle the client
         client_handler = threading.Thread(target=servant, args=(c, client_ip))
         client_handler.start()
