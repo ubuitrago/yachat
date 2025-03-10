@@ -8,7 +8,14 @@ YaChat - A Simple Chat App written in Python
 >`python3 YaChat.py uriel 192.168.1.214 7676`
 * For the help menu
 > `python3 YaChat.py -h`
+* To exit the chat, enter type `EXIT`
 __NOTE__: For DEBUG level logging, use the flag "--level DEBUG"
+
+## Running Server
+```
+python3 server.MemD.py 7676
+```
+__NOTE__: For DEBUG level logging, use the flag "-d"
 
 ## Usage
 Once the client connects with the server and is successfully admitted, the cursor will appear at the bottom of the terminal. Type in your message and press return. To leave the Chat Room, type and return "EXIT". 
